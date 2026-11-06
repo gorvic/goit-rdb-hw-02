@@ -1,4 +1,4 @@
-# Relational Databases for Data Science — Homework 2
+# Relational Databases for Data Science — Homework 1
 
 Домашня робота з проєктування реляційної бази даних для ML-сценарію на основі **MovieLens 100K**.
 
