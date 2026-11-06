@@ -1,0 +1,136 @@
+Table hw2_users {
+  user_id integer [pk]
+  age smallint [not null]
+  gender char(1) [not null]
+  occupation varchar(100) [not null]
+  zip_code varchar(20) [not null]
+
+  Note: 'Core MovieLens user entity.'
+}
+
+Table hw2_movies {
+  movie_id integer [pk]
+  title text [not null]
+  release_date date
+  imdb_url text
+
+  Note: 'Movie catalog used by ratings and training events.'
+}
+
+Table hw2_genres {
+  genre_id smallint [pk]
+  genre_name varchar(50) [not null, unique]
+
+  Note: 'Normalized movie genre dictionary.'
+}
+
+Table hw2_movie_genres {
+  movie_id integer [pk, ref: > hw2_movies.movie_id]
+  genre_id smallint [pk, ref: > hw2_genres.genre_id]
+
+  Note: 'Bridge table for the many-to-many movie-to-genre relationship.'
+}
+
+Table hw2_ratings {
+  user_id integer [pk, ref: > hw2_users.user_id]
+  movie_id integer [pk, ref: > hw2_movies.movie_id]
+  rating smallint [not null]
+  rating_ts timestamptz [not null]
+
+  Note: 'Timestamped user-to-movie interactions from MovieLens.'
+}
+
+Table hw2_user_features_offline {
+  user_id integer [pk, ref: > hw2_users.user_id]
+  valid_from timestamptz [pk]
+  valid_to timestamptz
+
+  ratings_30d integer [not null]
+  avg_rating_30d numeric(3,2)
+  distinct_movies_30d integer [not null]
+  distinct_genres_30d integer [not null]
+
+  Note: 'Historical user feature snapshots valid on [valid_from, valid_to). A partial unique index in DDL guarantees at most one row with valid_to IS NULL per user.'
+}
+
+Table hw2_training_events {
+  event_id bigint [pk, increment]
+  user_id integer [not null, ref: > hw2_users.user_id]
+  movie_id integer [not null, ref: > hw2_movies.movie_id]
+
+  prediction_ts timestamptz [not null]
+  label_horizon_end timestamptz [not null]
+  high_rating_in_horizon boolean [not null]
+
+  Note: 'Training events separate prediction time from the future label horizon.'
+}
+
+Table hw2_user_features_online {
+  user_id integer [pk, ref: > hw2_users.user_id]
+
+  ratings_30d integer [not null]
+  avg_rating_30d numeric(3,2)
+  distinct_movies_30d integer [not null]
+  distinct_genres_30d integer [not null]
+
+  feature_ts timestamptz [not null]
+  updated_at timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: 'Denormalized current feature values used for low-latency inference.'
+}
+
+Table hw2_user_interactions_view {
+  user_id integer
+  movie_id integer
+  rating smallint
+  rating_ts timestamptz
+  genre_id smallint
+
+  Note: 'VIEW — derived semantic layer based on hw2_ratings and hw2_movie_genres. Referential integrity belongs to the underlying tables.'
+}
+
+TableGroup "Business domain" {
+  hw2_users
+  hw2_movies
+  hw2_genres
+  hw2_movie_genres
+  hw2_ratings
+}
+
+TableGroup "Offline ML layer" {
+  hw2_user_features_offline
+  hw2_training_events
+}
+
+TableGroup "Online feature store" {
+  hw2_user_features_online
+}
+
+TableGroup "Semantic feature layer" {
+  hw2_user_interactions_view
+}
+
+// Data lineage. These are derivation dependencies, not foreign keys.
+Dep: hw2_ratings -> hw2_user_interactions_view [
+  note: 'Rating events are the base interaction source'
+]
+
+Dep: hw2_movie_genres -> hw2_user_interactions_view [
+  note: 'Adds genre_id for each rated movie'
+]
+
+Dep: hw2_ratings -> hw2_user_features_offline [
+  note: 'Provides timestamped rating history for 30-day user features'
+]
+
+Dep: hw2_movie_genres -> hw2_user_features_offline [
+  note: 'Provides genre membership for distinct_genres_30d'
+]
+
+Dep: hw2_ratings -> hw2_training_events [
+  note: 'Provides observed user-movie outcomes used to create controlled training events'
+]
+
+Dep: hw2_user_features_offline -> hw2_user_features_online [
+  note: 'Publishes the current valid feature version for low-latency lookup'
+]
